@@ -15,7 +15,6 @@ const IntervieweeTab: React.FC = () => {
   const dispatch = useDispatch();
   const { currentCandidate, isInterviewActive } = useSelector((state: RootState) => state.interview);
   const [currentStep, setCurrentStep] = useState(0);
-  const [isStartingInterview, setIsStartingInterview] = useState(false);
 
   const handleCandidateCreated = (candidate: Candidate) => {
     dispatch(addCandidate(candidate));
@@ -23,21 +22,13 @@ const IntervieweeTab: React.FC = () => {
     setCurrentStep(1);
   };
 
-  const handleStartInterview = async () => {
+  const handleStartInterview = () => {
     if (!currentCandidate) return;
     
-    setIsStartingInterview(true);
-    try {
-      const questions = await generateQuestions();
-      dispatch(startInterview({ candidateId: currentCandidate.id, questions }));
-      setCurrentStep(2);
-      message.success('Interview started! Good luck!');
-    } catch (error) {
-      message.error('Error starting interview. Please try again.');
-      console.error(error);
-    } finally {
-      setIsStartingInterview(false);
-    }
+    const questions = generateQuestions();
+    dispatch(startInterview({ candidateId: currentCandidate.id, questions }));
+    setCurrentStep(2);
+    message.success('Interview started! Good luck!');
   };
 
   const handleRestart = () => {
@@ -57,13 +48,8 @@ const IntervieweeTab: React.FC = () => {
               <p>Name: {currentCandidate?.name}</p>
               <p>Email: {currentCandidate?.email}</p>
               <p>Phone: {currentCandidate?.phone}</p>
-              <Button 
-                type="primary" 
-                size="large" 
-                onClick={handleStartInterview}
-                loading={isStartingInterview}
-              >
-                {isStartingInterview ? 'Generating Questions...' : 'Start Interview'}
+              <Button type="primary" size="large" onClick={handleStartInterview}>
+                Start Interview
               </Button>
             </div>
           </Card>

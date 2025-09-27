@@ -3,8 +3,8 @@ import { Card, Button, Input, Progress, Typography, Space, message } from 'antd'
 import { SendOutlined, PauseOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { submitAnswer, pauseInterview, resumeInterview, updateTimeRemaining } from '../store/slices/interviewSlice';
-import { evaluateAnswer } from '../services/aiService';
+import { submitAnswer, pauseInterview, resumeInterview, updateTimeRemaining, setFinalScore } from '../store/slices/interviewSlice';
+import { evaluateAnswer, generateSummary } from '../services/aiService';
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
@@ -42,18 +42,35 @@ const InterviewChat: React.FC = () => {
         timeSpent: currentQuestion.timeLimit - timeRemaining
       }));
 
-      // Update answer with score and feedback
-      const updatedCandidate = {
-        ...currentCandidate,
-        answers: currentCandidate.answers.map((answer, index) => 
-          index === currentCandidate.answers.length ? { ...answer, score, feedback } : answer
-        )
-      };
+      // If this is the last question, calculate final score and summary
+      if (currentCandidate.currentQuestionIndex + 1 >= currentCandidate.questions.length) {
+        const updatedAnswers = [...currentCandidate.answers, {
+          questionId: currentQuestion.id,
+          text: currentAnswer,
+          score,
+          feedback,
+          timeSpent: currentQuestion.timeLimit - timeRemaining,
+          submittedAt: new Date()
+        }];
+        
+        const finalScore = Math.round(updatedAnswers.reduce((sum, answer) => sum + (answer.score || 0), 0) / updatedAnswers.length);
+        const summary = await generateSummary(currentCandidate, updatedAnswers);
+        
+        dispatch(setFinalScore({
+          candidateId: currentCandidate.id,
+          score: finalScore,
+          summary
+        }));
+        
+        message.success(`Interview completed! Final Score: ${finalScore}/10`);
+      } else {
+        message.success(`Answer submitted! Score: ${score}/10`);
+      }
       
       setCurrentAnswer('');
-      message.success(`Answer submitted! Score: ${score}/10`);
     } catch (error) {
       message.error('Error submitting answer');
+      console.error(error);
     } finally {
       setIsSubmitting(false);
     }
