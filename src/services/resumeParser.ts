@@ -1,12 +1,13 @@
 import mammoth from 'mammoth';
-import { GlobalWorkerOptions } from 'pdfjs-dist/build/pdf';
-import { getDocument } from 'pdfjs-dist/build/pdf';
+import * as pdfjsLib from 'pdfjs-dist';
 
-// Set pdf.js worker (CDN fallback to avoid bundling complexity)
+// Set pdf.js worker (load from installed package via webpack URL resolution)
 if (typeof window !== 'undefined') {
   try {
-    // Use a pinned version to avoid breakage; update as needed
-    GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.worker.min.js';
+    (pdfjsLib as any).GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.mjs',
+      import.meta.url
+    ).toString();
   } catch (e) {
     // ignore if not available
   }
@@ -22,8 +23,8 @@ export interface ExtractedData {
 export const extractFromPDF = async (file: File): Promise<ExtractedData> => {
   const arrayBuffer = await file.arrayBuffer();
   try {
-    const loadingTask = getDocument({ data: arrayBuffer });
-    const pdf = await (loadingTask as any).promise;
+    const loadingTask = (pdfjsLib as any).getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
     let fullText = '';
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
@@ -61,6 +62,12 @@ export const extractFromDOCX = async (file: File): Promise<ExtractedData> => {
   });
 };
 
+const titleCase = (s: string): string =>
+  s
+    .split(/\s+/)
+    .map(w => w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w)
+    .join(' ');
+
 const extractFieldsFromText = (text: string): Partial<ExtractedData> => {
   const extracted: Partial<ExtractedData> = {};
 
@@ -81,17 +88,46 @@ const extractFieldsFromText = (text: string): Partial<ExtractedData> => {
     }
   }
 
-  // Extract name (look for common patterns or first line heuristic)
-  const nameRegex = /(?:^|\n)\s*(?:Name|Full Name)[:\s]+([A-Za-z][A-Za-z\-']+(?:\s+[A-Za-z][A-Za-z\-']+)+)/i;
-  const nameMatch = text.match(nameRegex);
-  if (nameMatch) {
-    extracted.name = nameMatch[1].trim();
-  } else {
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (lines.length > 0) {
-      const first = lines[0];
-      if (/^[A-Z][a-zA-Z\-']+\s+[A-Z][a-zA-Z\-']+/.test(first)) {
-        extracted.name = first;
+  // Extract name
+  // 1) Explicit label patterns
+  const labeledNameRegex = /(?:^|\n)\s*(?:Name|Full Name)[:\s]+([A-Za-z][A-Za-z\-'.]*(?:\s+[A-Za-z][A-Za-z\-'.]*){1,3})/i;
+  const labeled = text.match(labeledNameRegex);
+  if (labeled) {
+    extracted.name = titleCase(labeled[1].trim());
+    return extracted;
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean)
+    .slice(0, 20); // focus on header region
+
+  const looksLikeEmail = (s: string) => emailRegex.test(s);
+  const looksLikePhone = (s: string) => /(\+?\d[\d\s().-]{7,})/.test(s);
+  const isTooLong = (s: string) => s.length > 60;
+
+  // 2) Heuristic: ALL CAPS name lines (2-4 tokens)
+  for (const line of lines) {
+    if (isTooLong(line) || looksLikeEmail(line) || looksLikePhone(line)) continue;
+    if (/^[A-Z][A-Z\s.'-]{2,}$/.test(line)) {
+      const tokens = line.split(/\s+/).filter(Boolean);
+      if (tokens.length >= 2 && tokens.length <= 4) {
+        extracted.name = titleCase(tokens.join(' '));
+        return extracted;
+      }
+    }
+  }
+
+  // 3) Heuristic: First non-contact line with 2-4 words, capitalized
+  for (const line of lines) {
+    if (isTooLong(line) || looksLikeEmail(line) || looksLikePhone(line)) continue;
+    const words = line.split(/\s+/).filter(Boolean);
+    if (words.length >= 2 && words.length <= 4) {
+      const capitalizedCount = words.filter(w => /^[A-Z][a-zA-Z\-'.]*$/.test(w) || /^[A-Z]{2,}$/.test(w)).length;
+      if (capitalizedCount >= 2) {
+        extracted.name = titleCase(words.join(' '));
+        return extracted;
       }
     }
   }

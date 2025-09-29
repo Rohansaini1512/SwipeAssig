@@ -12,7 +12,7 @@ interface ResumeUploadProps {
 
 const ResumeUpload: React.FC<ResumeUploadProps> = ({ onCandidateCreated }) => {
   const [form] = Form.useForm();
-  const [extractedData, setExtractedData] = useState<any>(null);
+  const [extractedData, setExtractedData] = useState<Partial<Candidate> | null>(null);
   const [loading, setLoading] = useState(false);
   const [showMissingFieldsChat, setShowMissingFieldsChat] = useState(false);
 
@@ -46,7 +46,14 @@ const ResumeUpload: React.FC<ResumeUploadProps> = ({ onCandidateCreated }) => {
         text: baseExtracted.text
       };
 
-      setExtractedData(merged);
+      // Store Candidate-shaped partial for MissingFieldsChat
+      const candidatePartial: Partial<Candidate> = {
+        name: merged.name,
+        email: merged.email,
+        phone: merged.phone,
+        resumeText: merged.text
+      };
+      setExtractedData(candidatePartial);
 
       // Check for missing fields
       const missingFields: string[] = [];
@@ -58,12 +65,20 @@ const ResumeUpload: React.FC<ResumeUploadProps> = ({ onCandidateCreated }) => {
         message.warning(`Some information could not be extracted. We'll collect the missing fields: ${missingFields.join(', ')}`);
         setShowMissingFieldsChat(true);
       } else {
-        form.setFieldsValue({
-          name: merged.name || '',
-          email: merged.email || '',
-          phone: merged.phone || ''
-        });
-        message.success('Resume processed successfully! All information extracted.');
+        // All fields present: auto-create candidate and proceed
+        const candidate: Candidate = {
+          id: Date.now().toString(),
+          name: merged.name as string,
+          email: merged.email as string,
+          phone: merged.phone as string,
+          resumeText: merged.text,
+          interviewStatus: 'not_started',
+          currentQuestionIndex: 0,
+          questions: [],
+          answers: []
+        };
+        onCandidateCreated(candidate);
+        message.success('Resume processed successfully! Profile created.');
       }
     } catch (error) {
       message.error('Error processing resume');
@@ -86,7 +101,7 @@ const ResumeUpload: React.FC<ResumeUploadProps> = ({ onCandidateCreated }) => {
       name: values.name,
       email: values.email,
       phone: values.phone,
-      resumeText: extractedData?.text,
+      resumeText: extractedData?.resumeText,
       interviewStatus: 'not_started',
       currentQuestionIndex: 0,
       questions: [],
@@ -101,7 +116,7 @@ const ResumeUpload: React.FC<ResumeUploadProps> = ({ onCandidateCreated }) => {
     message.success('Candidate profile created successfully!');
   };
 
-  if (showMissingFieldsChat) {
+  if (showMissingFieldsChat && extractedData) {
     return (
       <MissingFieldsChat 
         candidate={extractedData} 
