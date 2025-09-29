@@ -4,6 +4,7 @@ import { InboxOutlined, FileTextOutlined } from '@ant-design/icons';
 import { extractResumeData } from '../services/aiService';
 import MissingFieldsChat from './MissingFieldsChat';
 import { Candidate } from '../types';
+import { extractFromPDF, extractFromDOCX, ExtractedData } from '../services/resumeParser';
 
 interface ResumeUploadProps {
   onCandidateCreated: (candidate: Candidate) => void;
@@ -18,30 +19,49 @@ const ResumeUpload: React.FC<ResumeUploadProps> = ({ onCandidateCreated }) => {
   const handleFileUpload = async (file: File) => {
     setLoading(true);
     try {
-      let extracted;
-      
-      // Read file content
-      const fileContent = await readFileContent(file);
-      
-      // Use Gemini AI to extract data
-      extracted = await extractResumeData(fileContent);
-      
-      setExtractedData(extracted);
-      
+      let baseExtracted: ExtractedData | null = null;
+
+      // Parse file content depending on type
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        baseExtracted = await extractFromPDF(file);
+      } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || /\.docx$/i.test(file.name)) {
+        baseExtracted = await extractFromDOCX(file);
+      } else {
+        // Fallback: read as text (txt or unknown types)
+        const text = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve((e.target?.result as string) || '');
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+        baseExtracted = { name: undefined, email: undefined, phone: undefined, text };
+      }
+
+      // Run AI extraction on the raw text and merge with base extracted fields
+      const aiExtracted = await extractResumeData(baseExtracted.text);
+      const merged = {
+        name: aiExtracted.name || baseExtracted.name,
+        email: aiExtracted.email || baseExtracted.email,
+        phone: aiExtracted.phone || baseExtracted.phone,
+        text: baseExtracted.text
+      };
+
+      setExtractedData(merged);
+
       // Check for missing fields
-      const missingFields = [];
-      if (!extracted.name) missingFields.push('Name');
-      if (!extracted.email) missingFields.push('Email');
-      if (!extracted.phone) missingFields.push('Phone');
-      
+      const missingFields: string[] = [];
+      if (!merged.name) missingFields.push('Name');
+      if (!merged.email) missingFields.push('Email');
+      if (!merged.phone) missingFields.push('Phone');
+
       if (missingFields.length > 0) {
         message.warning(`Some information could not be extracted. We'll collect the missing fields: ${missingFields.join(', ')}`);
         setShowMissingFieldsChat(true);
       } else {
         form.setFieldsValue({
-          name: extracted.name || '',
-          email: extracted.email || '',
-          phone: extracted.phone || ''
+          name: merged.name || '',
+          email: merged.email || '',
+          phone: merged.phone || ''
         });
         message.success('Resume processed successfully! All information extracted.');
       }
@@ -52,25 +72,6 @@ const ResumeUpload: React.FC<ResumeUploadProps> = ({ onCandidateCreated }) => {
       setLoading(false);
     }
     return false; // Prevent default upload
-  };
-
-  const readFileContent = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        resolve(content);
-      };
-      reader.onerror = reject;
-      
-      if (file.type === 'application/pdf') {
-        // For PDF files, we'll use a simple text extraction
-        // In a real implementation, you might want to use a PDF parsing library
-        reader.readAsText(file);
-      } else {
-        reader.readAsText(file);
-      }
-    });
   };
 
   const handleSubmit = (values: any) => {

@@ -6,7 +6,7 @@ import { PersistGate } from 'redux-persist/integration/react';
 import { store, persistor } from './store';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
-import { setShowWelcomeBackModal } from './store/slices/uiSlice';
+import { setShowWelcomeBackModal, setActiveTab } from './store/slices/uiSlice';
 import IntervieweeTab from './components/IntervieweeTab';
 import InterviewerTab from './components/InterviewerTab';
 import WelcomeBackModal from './components/WelcomeBackModal';
@@ -69,6 +69,11 @@ const AppContent: React.FC = () => {
               items={tabItems}
               size="large"
               style={{ padding: '24px' }}
+              onChange={(key) => {
+                if (key === 'interviewee' || key === 'interviewer') {
+                  dispatch(setActiveTab(key));
+                }
+              }}
             />
           </div>
           
